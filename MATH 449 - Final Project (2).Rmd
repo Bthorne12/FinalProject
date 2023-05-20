@@ -1,0 +1,425 @@
+---
+title: "MATH 449 - Final Project"
+author: "Dona Inayyah & Bryan Thorne"
+date: "2023-05-18"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+```{r setup, include=FALSE}
+# DO NOT ALTER CODE IN THIS CHUNK
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(tibble)
+library(Epi)
+library(lattice)
+library(DAAG)
+library(knitr)
+```
+
+------------------------------------------------------------------------
+
+#### State the problem and describe the data set
+
+The data used for our final project, Arrests.csv, includes data on individuals in Toronto, Canada that were arrested for simple possession of small quantities of marijuana. The problem is to investigate the relationship between the release of an arrested individual, with a summons, and their race, sex, age, year of arrest, employment status, citizenship status, and number of checks (the number of times the arrested individual\'s name appeared in police databases).
+
+This is an un-grouped dataset that consists of 5226 observations with 8 variables.
+
+The variables are:
+
+-   "released" (1=Yes, 0=No)
+
+-   "colour" (1=White, 0=Black)
+
+-   "sex" (1=Male, 0=Female)
+
+-   "employed" (1=Yes, 0=No)
+
+-   "citizen" (1=Yes, 0=No)
+
+-   "year" (2002 - 1997)
+
+-   "age" (12 - 66)
+
+-   "checks" (0 - 6).
+
+Variables "released", "color", "sex", "employed", and "citizens" are categorical whereas variables "year", "age" and "checks" are numerical. We will use "released" as the response variable, while the rest are explanatory variables.
+
+#### Fit a logistic regression model with all predictors
+
+```{r}
+arrests=read.csv("Arrests1.csv",header=TRUE)
+arrests
+
+# Transform response variable to binary
+arrests$released = ifelse(arrests$released == "Yes", 1, 0)
+
+# Transform categorical explanatory variables to binary 
+arrests$sex = ifelse(arrests$sex == "Male", 1, 0)
+arrests$employed = ifelse(arrests$employed == "Yes", 1, 0)
+arrests$citizen = ifelse(arrests$citizen == "Yes", 1, 0)
+arrests$colour = ifelse(arrests$colour == "White", 1, 0)
+
+# Fit the logistic regression model with all predictors
+fit0 = glm(released ~ colour + year + age + sex + employed + citizen + checks, 
+           family = "binomial", data = arrests)
+summary(fit0)
+```
+
+$logit[P(Y=1)]=0.974332+0.389109Co-0.004218Y+0.002236A+0.007317S+0.757302E+0.576519Ci-0.364101Ch$
+
+-   Co represents the variable "colour".
+
+-   Y represents the variable "year".
+
+-   A represents the variable "age".
+
+-   S represents the variable "sex".
+
+-   E represents the variable "employed".
+
+-   Ci represents the variable "citizen".
+
+-   Ch represents the variable "checks".
+
+#### Select the best subset of variables. Perform a diagnostic on the best model. Perform all possible inferences you can think about.
+
+-   We can use **`stepAIC()`** to select the best subset of variables, as it uses forward selection and backward elimination.
+
+```{r}
+# Use stepAIC function to determine best subset of variables 
+stepAIC(fit0)
+```
+
+```{r}
+# Fit model with best subset 
+fit1 = glm(released ~ colour + employed + citizen + checks, 
+           family = "binomial", data = arrests)
+summary(fit1)
+```
+
+By looking at the summary, we can see that race, employment status, citizenship status, and the number of checks are statistically significant at the 0.01 level. Therefore, we can infer that there is a strong association between these variables and the likelihood of an arrestee being released with a summons.
+
+Before moving on, we should check to see if we have unbalanced data.
+
+```{r}
+table(arrests$released)
+prop.released = 892/(892+4334)
+cat("\n Proportion of not released:", prop.released)
+
+I=which(arrests$released==1)
+J=sample(I, 1000)
+J1=which(arrests$released==0)
+arrests1=rbind(arrests[J,],arrests[J1,])
+```
+
+By calculating the proportions of "released", we can see that we do have unbalanced data, where only 17% of the observation are not released. Therefore, we can create a subset of the data by sampling random 1000 observations from the "released" category (I) and combining them with all observations from the "not released" category (J1) to create a new, more balanced data-set called "**arrests1**".
+
+Now we can fit a new model, with the same subset of variables used in **fit1**.
+
+```{r}
+fit2 = glm(released ~ colour + employed + citizen + checks, family = "binomial", data = arrests1)
+(g=summary(fit2))
+
+# Coefficients
+alpha = g$coef[1,1]
+beta1 = g$coef[2,1]
+beta2 = g$coef[3,1]
+beta3 = g$coef[4,1]
+beta4 = g$coef[5,1]
+```
+
+Important note: Because our new, balanced **arrests1** data is combined with 1000 *random* observations from the "released" category, our estimate coefficient will vary after each run. However, this doesn't change its direction and the change in magnitude is very small.
+
+-   Now we can carry out a Goodness-of-Fit Test with comparison to the null, to see if this is an adequate fit.
+
+$H_0:$ All parameters in model $M$ not in the null model $M_0$ are zero
+
+$H_1:$ At least one of them is not zero
+
+```{r}
+# Comparison with the null
+fit_null = glm(released ~ 1, family = "binomial", data = arrests1)
+anova(fit2, fit_null, test = "LRT")
+```
+
+Since we have a very small p-value that is less than a 0.001 level of significance, we have very strong evidence to reject the null hypothesis and conclude that our model is adequate.
+
+We can now make inferences on our model.
+
+-   Likelihood Ratio Confidence Intervals.
+
+```{r}
+# Confidence Interval
+confint(fit2, level = 0.95)
+```
+
+From the 95% Likelihood-Ratio CI, we get a range of possible values for which the true $\pi(x)$ lies for each coefficient of our model, while holding other predictors constant. Firstly, we are 90% confident that the estimated coefficient for "colour" lies between $0.0809$ and $0.5248$. This means that individuals of different races have a significant impact on the log-odds of being released with a summons, but the exact nature and direction of this impact depends on the specific race categories. Next, the estimated coefficient for employment status falls between $0.5671$ and $1.0183$, and the estimated coefficient for citizenship status falls between $0.3465$ and $0.8733$. Because the probabilities are higher, we could infer that being employed, or being a citizen have a higher log-odds compared to unemployed, or non-citizens, respectively. Finally, the range for "checks" is $-0.4484 \leq\pi(x)\leq-0.3185$. This means that an increase in the number of checks is associated with a significant decrease in the log-odds of being released with a summons.
+
+-   Finally, we can look at the multiplicative effects, otherwise known as the odds ratio.
+
+```{r}
+# Multiplicative effect 
+effect_co = exp(beta1)
+effect_em = exp(beta2)
+effect_ci = exp(beta3)
+effect_ch = exp(beta4)
+
+effect.df = data.frame(Predictor = c("Colour", "Employed", "citizen", "checks"), 
+                       Effect = c(effect_co, effect_em, effect_ci, effect_ch))
+effect.df
+```
+
+The multiplicative effect represents the odds of the response, y, occurring, for every one-unit increase in the predictor variables, x. To begin, the odds ratio of $1.3537$ for "colour" means that the odds of being released with a summons increases by 35% when the "colour" variable increases by one. In other words, the odds of a white person being released is approximately 61% higher than that of a black person. Next, the odds of being released with a summons is $2.2063$ times higher for an employed person compared to an unemployed person. Moving on, the odds of being released with a summons is approximately 83% higher for a citizen compared to a non-citizen. Finally, the odds ratio of $0.6818$ for "checks" means that the odds of being released decreases by approximately 68% for a person who has more checks, compared to someone who has less checks.
+
+#### Use the new model to make predictions.
+
+We can use the **`predict()`** function to make predictions.
+
+```{r}
+pihat = predict(fit2, type = "response")
+```
+
+It uses the prediction equation $\pi(x)$:
+
+$$
+\pi(x)=\frac{e^{-0.42628+0.39287Co+0.79130E+0.60874Ci-0.38301Ch}}{1+e^{-0.42628+0.39287Co+0.79130E+0.60874Ci-0.38301Ch}}
+$$
+
+We'll use four random observations as examples to further elaborate.
+
+```{r}
+Co=0; E=0; Ci=0; Ch=0
+(exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))/
+  (1+exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))
+```
+
+For a black, unemployed person who is not a Canadian citizen with no checks, the probability of being released with a summons is 0.39.
+
+```{r}
+Co=1; E=1; Ci=1; Ch=1
+(exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))/
+  (1+exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))
+```
+
+For a white, employed, Canadian citizen with only 1 check, the probability of being released with a summons is 0.71.
+
+```{r}
+Co=1; E=0; Ci=1; Ch=6
+(exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))/
+  (1+exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))
+```
+
+For a white, unemployed, Canadian citizen with 6 checks, the probability of being released with a summons is 0.15.
+
+```{r}
+Co=0; E=1; Ci=1; Ch=5
+(exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))/
+  (1+exp(alpha + beta1*Co + beta2*E + beta3*Ci + beta4*Ch))
+```
+
+For a black, employed, Canadian citizen with 5 checks, the probability of being released with a summons is 0.29.
+
+#### Use different pi_0 as a cut-off point and create a confusion table.
+
+There are two different ways to choose $\pi_0$ as a cut-off point.
+
+-   $\pi_0=0.5$
+
+```{r}
+# pi0 = 0.5
+y = as.numeric(arrests1$released > 0)
+yhat = as.numeric(pihat > 0.50)
+(confusion1 = addmargins(table(y, yhat), 2))
+
+n11 = confusion1[1,1]
+n12 = confusion1[1,2]
+n1r = confusion1[1,3]
+n21 = confusion1[2,1]
+n22 = confusion1[2,2]
+n2r = confusion1[2,3]
+```
+
+-   $\pi_0=\frac{(Y=1)}{n}$
+
+```{r}
+# pi0 = #(Y=1)/n 
+pi_0 = n2r/(n1r+n2r)
+y = as.numeric(arrests1$released > 0)
+yhat = as.numeric(pihat > pi_0)
+(confusion2 = addmargins(table(y, yhat), 2))
+
+m11 = confusion2[1,1]
+m12 = confusion2[1,2]
+m1r = confusion2[1,3]
+m21 = confusion2[2,1]
+m22 = confusion2[2,2]
+m2r = confusion2[2,3]
+```
+
+```{r}
+# metrics for confusion1
+sens1 = n22 / n2r
+spec1 = n11 / n1r
+acc1 = (n11 + n22) / (n1r + n2r)
+err1 = (n12 + n21) / (n1r + n2r)
+
+# metrics for confusion2
+sens2 = m22 / m2r
+spec2 = m11 / m1r
+acc2 = (m11 + m22) / (m1r + m2r)
+err2 = (m12 + m21) / (m1r + m2r)
+
+metrics.df = data.frame(Matrix = c("Confusion 0", "Confusion 1"),
+                        Sensitivity = c(sens1, sens2),
+                        Specificity = c(spec1, spec2),
+                        Accuracy = c(acc1, acc2),
+                        Error = c(err1, err2))
+metrics.df
+```
+
+Sensitivity represents the proportion of true positives. In this case, it is the correctly identified released individuals among those actually released. Model $M_2$ using the new **arrests1** data has a higher sensitivity of 63.7% compared to $M_1$'s 59%. This indicates that $M_2$ is better at correctly identifying individuals who are actually released.
+
+Specificity represents the proportion of true negatives, i.e. correctly identified not released individuals among those actually not released. The model using the original **arrests** data has a higher specificity of 77.2% compared to $M_2$'s 73%, which means that $M_1$ is better at correctly identifying individuals who are actually not released. We can note that as sensitivity increases, the specificity decreases.
+
+Accuracy
+
+Error
+
+#### Perform visualization of data and models.
+
+-   Model different combinations of **fit2** to show the relationship between "released" & "checks"
+
+```{r}
+with(arrests1, {
+  plot(jitter(checks, 5), released,
+       xlim = c(-2, 8), ylim = c(0, 1),
+       xlab = "Checks", ylab = "Released (Yes=1, No=0)")
+})
+
+# logit=alpha: curve(plogis(coef(fit2)[1]), col=1, add=TRUE, lwd=2)
+curve(plogis(coef(fit2)[1] + coef(fit2)[5]*x), col=2, add=TRUE, lwd=2)
+curve(plogis(coef(fit2)[1] + coef(fit2)[2] + coef(fit2)[3] + coef(fit2)[4] + coef(fit2)[5]*x), 
+      col=3, add=TRUE, lwd=2)
+
+curve(plogis(coef(fit2)[1] + coef(fit2)[4] + coef(fit2)[5]*x), col=4, add=TRUE, lwd=2)
+curve(plogis(coef(fit2)[1] + coef(fit2)[3] + coef(fit2)[5]*x), col=5, add=TRUE, lwd=2)
+curve(plogis(coef(fit2)[1] + coef(fit2)[2] + coef(fit2)[5]*x), col=6, add=TRUE, lwd=2)
+
+curve(plogis(coef(fit2)[1] + coef(fit2)[2] + coef(fit2)[4] + coef(fit2)[5]*x), 
+      col=7, add=TRUE, lwd=2)
+curve(plogis(coef(fit2)[1] + coef(fit2)[3] + coef(fit2)[4] + coef(fit2)[5]*x), 
+      col=8, add=TRUE, lwd=2)
+curve(plogis(coef(fit2)[1] + coef(fit2)[2] + coef(fit2)[3] + coef(fit2)[5]*x), 
+      col=9, add=TRUE, lwd=2)
+
+lgnd = c("a + b4x",
+         "a + b1 + b2 + b3 + b4x",
+         "a + b1 + b4x",
+         "a + b2 + b4x",
+         "a + b3 + b4x",
+         "a + b1 + b4 + b4x",
+         "a + b2 + b4 + b4x", 
+         "a + b3 + b4 + b4x")
+legend("topright", lgnd, pch=19,
+       col=1:9, text.col=1:41, cex = 0.55)
+```
+
+-   Box-plot of "checks"
+
+```{r}
+arrestyes=subset(arrests1, released==1)
+arrestno=subset(arrests1, released==0)
+boxplot(list(yes=arrestyes$checks, no=arrestno$checks))
+```
+
+Based on the box-plot, we can observe that the medians of the "yes" and "no" groups appear to be different. This suggests that there might be a difference in the central tendencies of the "checks" variable between the two groups. There is also an overlap between the "yes" and "no" groups, which indicates that both the groups have similar values for the number of checks.
+
+-   Box-plot for "age"
+
+```{r}
+boxplot(list(yes=arrestyes$age, no=arrestno$age))
+```
+
+From the box-plot above, we can see that both groups have similar distributions, with nearly identical medians and both having outliers. This suggests that age may not be a strong predictor in determining whether an individual is being released with a summons.
+
+#### Plot the ROC curve, find AUC, and the best cutoff point for classification.
+
+-   ROC using $M_1$
+
+```{r}
+attach(arrests)
+
+ROC(form=released ~ colour + employed + citizen + checks, plot="ROC")
+```
+
+-   ROC using $M_2$
+
+```{r}
+detach(arrests)
+attach(arrests1)
+
+ROC(form=released ~ colour + employed + citizen + checks, plot="ROC")
+```
+
+The cut-off point represents the threshold for the probability where individuals are classified as being released. For the original **arrests** data, the cut-off point is $0.856$, while the cut-off point for the new **arrests1** data is $0.545$. Next, model $M_2$ has a slightly higher AUC of $0.727$ compared to the AUC of $0.724$ for $M_1$. This indicates that $M_2$ has a slightly better predictive power, and is better at distinguishing between released and not released individuals. Additionally, Model $M_2$ using the new **arrests1** data has a higher sensitivity of 63.7% compared to $M_1$'s 59%. This indicates that $M_2$ is better at correctly identifying individuals who are actually released. Therefore, the cut-off point of $1$ is better.
+
+#### Perform LOOCV and k-fold cross-validation.
+
+```{r}
+# LOOCV
+library(caret)
+set.seed(123)
+
+# Define training control
+train.control = trainControl(method = "LOOCV")
+
+model = released ~ colour + employed + citizen + checks
+
+# Train the model
+model = train(model, data = arrests1, method = "glm", trControl = train.control)
+model
+```
+
+The RMSE (Root Mean Square Error) of 0.461002 means that the model's predictions are off from the actual values by approximately 0.461002 units. Next, the Rsquared of 0.1471657 suggests that the model explains approximately 14.72% of the total variation in the outcome. Finally, the MAE (Mean Absolute Error) is 0.4240248, which means that the average absolute difference between the predicted values and the actual values is 0.424.
+
+```{r}
+# k-fold cross-validation.
+cv.binary(fit1)
+cv.binary(fit2)
+```
+
+For model$M_1$ the set of folds is (2, 7, 3, 4, 9, 8, 5, 10, 1, 6) and the internal estimate of accuracy is $0.705$. This means that when the model is used on this dataset, it achieves an accuracy of 0.705. The cross-validation estimate of accuracy for the **fit1** folds is $0.699$. This estimate is obtained by training the model on a subset of the data, whcih is the folds and evaluating it on the remaining fold. Since the internal estimate is higher, this means there may be over fitting.
+
+For model$M_2$ the set of folds are (10, 7, 8, 5, 4, 9, 6, 3, 1, 2), and the internal estimate is $0.675$, and the cross validation estimate $0.672$. In **fit2** the internal is also higher then cross validation estimate, which may mean that we have an over-fitting problem.
+
+#### Try the probit link and the identity links to model data.
+
+```{r}
+fit_probit = glm(released ~ colour + employed + citizen + checks, 
+                 family = binomial(link = "probit"), data = arrests1)
+summary(fit_probit)
+```
+
+With the probit link, we get the model, $M_P$:
+
+$$
+logit[P(Y=1)]=-0.24879+0.18044Co+0.48248E+0.36462Ci-0.23333Ch
+$$
+
+Model $M_P$ is very similar to our model $M_2$.
+
+```{r}
+# fit_ident = glm(released ~ colour + employed + citizen + checks, 
+                 #family = binomial(link = "identity"), data = arrests1)
+#summary(fit_ident)
+```
+
+Using arrests1, we are not able to use the identity link. this could be due to a lack of convergence or co-linearity. Therefore, between the two, the probit link is better for this data.
